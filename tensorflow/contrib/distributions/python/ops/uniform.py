@@ -21,7 +21,6 @@ from __future__ import print_function
 import math
 
 from tensorflow.contrib.distributions.python.ops import distribution
-from tensorflow.contrib.framework.python.framework import tensor_util as contrib_tensor_util
 from tensorflow.python.framework import constant_op
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
@@ -35,7 +34,7 @@ from tensorflow.python.ops import random_ops
 class Uniform(distribution.Distribution):
   """Uniform distribution with `low` and `high` parameters.
 
-  ### Mathematical Details
+  #### Mathematical Details
 
   The probability density function (pdf) is,
 
@@ -54,7 +53,7 @@ class Uniform(distribution.Distribution):
   The parameters `low` and `high` must be shaped in a way that supports
   broadcasting (e.g., `high - low` is a valid operation).
 
-  ### Examples
+  #### Examples
 
   ```python
   # Without broadcasting:
@@ -101,24 +100,23 @@ class Uniform(distribution.Distribution):
       InvalidArgumentError: if `low >= high` and `validate_args=False`.
     """
     parameters = locals()
-    with ops.name_scope(name, values=[low, high]) as ns:
+    with ops.name_scope(name, values=[low, high]):
       with ops.control_dependencies([
           check_ops.assert_less(
               low, high, message="uniform not defined when low >= high.")
       ] if validate_args else []):
         self._low = array_ops.identity(low, name="low")
         self._high = array_ops.identity(high, name="high")
-        contrib_tensor_util.assert_same_float_dtype([self._low, self._high])
+        check_ops.assert_same_float_dtype([self._low, self._high])
     super(Uniform, self).__init__(
         dtype=self._low.dtype,
         reparameterization_type=distribution.FULLY_REPARAMETERIZED,
-        is_continuous=True,
         validate_args=validate_args,
         allow_nan_stats=allow_nan_stats,
         parameters=parameters,
         graph_parents=[self._low,
                        self._high],
-        name=ns)
+        name=name)
 
   @staticmethod
   def _param_shapes(sample_shape):

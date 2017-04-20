@@ -19,14 +19,6 @@ from __future__ import division
 from __future__ import print_function
 # pylint: enable=unused-import
 
-import sys
-
-# TODO(jart): #6568 Remove this hack that makes dlopen() not crash.
-if hasattr(sys, "getdlopenflags") and hasattr(sys, "setdlopenflags"):
-  import ctypes  # pylint: disable=g-import-not-at-top
-  sys.setdlopenflags(sys.getdlopenflags() | ctypes.RTLD_GLOBAL)
-
-# pylint: disable=g-import-not-at-top
 import numpy as np
 
 from tensorflow.contrib.rnn import core_rnn_cell
@@ -52,7 +44,7 @@ class DynamicDecodeRNNTest(test.TestCase):
     cell_depth = 10
     max_out = max(sequence_length)
 
-    with self.test_session() as sess:
+    with self.test_session(use_gpu=True) as sess:
       if time_major:
         inputs = np.random.randn(max_time, batch_size,
                                  input_depth).astype(np.float32)
@@ -126,7 +118,7 @@ class DynamicDecodeRNNTest(test.TestCase):
     cell_depth = 10
     max_out = max(sequence_length)
 
-    with self.test_session() as sess:
+    with self.test_session(use_gpu=True) as sess:
       inputs = np.random.randn(batch_size, max_time,
                                input_depth).astype(np.float32)
 

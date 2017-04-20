@@ -20,49 +20,16 @@ limitations under the License.
 
 #include <vector>
 
-#include "tensorflow/compiler/tf2xla/xla_compilation_device.h"
 #include "tensorflow/compiler/tf2xla/xla_compiler.h"
 #include "tensorflow/compiler/tf2xla/xla_op_kernel.h"
-#include "tensorflow/compiler/xla/client/client.h"
+#include "tensorflow/compiler/xla/client/computation.h"
 #include "tensorflow/compiler/xla/client/computation_builder.h"
+#include "tensorflow/compiler/xla/xla_data.pb.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/resource_mgr.h"
-#include "tensorflow/core/graph/graph.h"
 #include "tensorflow/core/platform/macros.h"
 
 namespace tensorflow {
-
-// A XlaExpression wraps an XLA computation. Each Tensor sent
-// along an edge during XLA compilation represents a
-// XlaExpression, and the shape of the Tensor matches the shape of
-// the subcomputation in the ComputationDataHandle. Each
-// expression is either a constant, or a function of previously-compiled
-// expressions.
-class XlaExpression {
- public:
-  XlaExpression();
-
-  // handle() stores the XLA handle of the computation that the
-  // expression represents.
-  void set_handle(const xla::ComputationDataHandle& h);
-  const xla::ComputationDataHandle& handle() const;
-
-  void set_constant_value(Tensor value);
-  bool has_constant_value() const { return has_constant_value_; }
-  const Tensor& constant_value() const { return constant_value_; }
-
- private:
-  // The XLA handle of the expression's computation.
-  xla::ComputationDataHandle handle_;
-
-  // If this expression is a constant with a known value, 'constant_value' is a
-  // host-memory Tensor containing the value. Used to avoid invoking XLA for
-  // expressions that are trivially constant.
-  bool has_constant_value_;
-  Tensor constant_value_;
-
-  TF_DISALLOW_COPY_AND_ASSIGN(XlaExpression);
-};
 
 // The XlaContext is the data structure that holds the state of an XLA
 // compilation, that is accessible from OpKernelContexts when compiling a
@@ -76,8 +43,21 @@ class XlaContext : public ResourceBase {
     bool is_constant;
     Tensor constant_value;  // Must be in host memory.
 
-    // If this is not a constant, a computation handle.
+    // If this is not a constant, a computation handle. Since the mapping from
+    // Tensorflow types to XLA types is not necessarily injective (one-to-one),
+    // we also require the Tensorflow type.
+    DataType type;
     xla::ComputationDataHandle handle;
+  };
+
+  struct Argument {
+    // Descriptive name for the variable, for use in error messages.
+    string name;
+
+    // Is this a variable?
+    bool is_variable;
+
+    HandleOrConstant value;
   };
 
   // Retrieves the XlaContext of the current compilation.
@@ -102,8 +82,8 @@ class XlaContext : public ResourceBase {
   bool allow_cpu_custom_calls() const { return allow_cpu_custom_calls_; }
   bool has_context_parameter() const { return has_context_parameter_; }
 
-  const std::vector<HandleOrConstant>& args() const { return args_; }
-  void set_args(std::vector<HandleOrConstant> args);
+  const std::vector<Argument>& args() const { return args_; }
+  void set_args(std::vector<Argument> args);
 
   // Get the runtime context parameter, adding one if it does not already exist.
   // Dies if not compiling a local executable.
@@ -113,7 +93,8 @@ class XlaContext : public ResourceBase {
 
   // This is called by the Retval Op to associate a computed value
   // with a specific return value of the subgraph.
-  void AddRetval(int retval_index, const xla::ComputationDataHandle& handle);
+  void AddRetval(int retval_index, DataType type,
+                 const xla::ComputationDataHandle& handle);
 
   // As for Retval, but for return values that are compile-time constants.
   Status AddConstRetval(int retval_index, DataType dtype,
@@ -123,6 +104,34 @@ class XlaContext : public ResourceBase {
   void AddSideEffects();
 
   bool has_side_effects() const { return has_side_effects_; }
+
+  struct Variable {
+    // A descriptive name for the variable, used in error messages.
+    string name;
+
+    // Current type and value of the variable. Uninitialized variables are
+    // represented by a default (zero) handle and type DT_INVALID.
+    // While the type of a variable is notionally fixed during execution, when
+    // a variable is first initialized we do not yet know its type, so we keep
+    // track of its type dynamically.
+    DataType type = DT_INVALID;
+    xla::ComputationDataHandle value;
+
+    // Value of the variable at computation entry. Used to detect which
+    // variables have new values that need to be written back.
+    xla::ComputationDataHandle initial_value;
+  };
+
+  // Creates a variable with variable `variable_id` and initial type `type` and
+  // value `handle`. `name` is a descriptive name for use in error messages.
+  // Fails if the variable already exists.
+  Status CreateVariable(int variable_id, string name, DataType type,
+                        const xla::ComputationDataHandle& handle);
+
+  // Retrieves variable `variable_id`. Fails if the variable does not exist.
+  Status GetVariable(int variable_id, Variable** variable);
+
+  const std::unordered_map<int, Variable>& variables() { return variables_; }
 
   // Get an XLA lambda to compute Max. This is cached in the
   // XlaContext since it may be used by multiple Ops. There is a
@@ -165,13 +174,16 @@ class XlaContext : public ResourceBase {
 
   // Arguments to the Tensorflow graph, indexed by _Arg index.
   // Includes both compile-time constant arguments and runtime parameters.
-  std::vector<HandleOrConstant> args_;
+  std::vector<Argument> args_;
 
   // Return values of the Tensorflow graph, indexed by _Retval index.
   std::vector<HandleOrConstant> retvals_;
 
   // Does the computation have side effects, i.e., Send() calls?
   bool has_side_effects_ = false;
+
+  // Map from variable ID to the current value of each variable.
+  std::unordered_map<int, Variable> variables_;
 
   // Cache of prebuilt computations indexed by their type.
   using ComputationMap = std::map<DataType, xla::Computation>;

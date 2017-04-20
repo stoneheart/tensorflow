@@ -28,6 +28,7 @@ from tensorflow.python.framework import random_seed
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import init_ops
 from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import random_ops
 from tensorflow.python.ops import variable_scope
 from tensorflow.python.ops import variables
 from tensorflow.python.ops.losses import losses
@@ -752,6 +753,44 @@ class HingeLossTest(test.TestCase):
       self.assertAllClose(loss.eval(), 0.875, atol=1e-3)
 
 
+class HuberLossTest(test.TestCase):
+
+  def testIncompatibleShapes(self):
+    with self.test_session():
+      predictions = constant_op.constant([[-1.0], [2.1]])
+      labels = constant_op.constant([0.0, 1.0])
+      with self.assertRaises(ValueError):
+        _ = losses.huber_loss(labels, predictions).eval()
+
+  def testAllQuadratic(self):
+    with self.test_session():
+      predictions = constant_op.constant([1.5, -1.4, -1.0, 0.0])
+      labels = constant_op.constant([1.0, -1.0, 0.0, 0.5])
+      loss = losses.huber_loss(labels, predictions)
+      self.assertAllClose(loss.eval(),
+                          0.5 * (0.25 + 0.16 + 1.0 + 0.25) / 4., atol=1e-5)
+
+  def testAllLinear(self):
+    with self.test_session():
+      predictions = constant_op.constant([1.5, -1.4, -1.0, 0.0])
+      labels = constant_op.constant([0.0, 1.0, 0.0, 1.5])
+      loss = losses.huber_loss(labels, predictions)
+      self.assertAllClose(loss.eval(),
+                          (1.5 + 2.4 + 1.0 + 1.5) / 4. - 0.5, atol=1e-5)
+
+  def testMixedQuadraticLinear(self):
+    with self.test_session():
+      predictions = constant_op.constant([[1.5, -1.4, -1.0, 0.0],
+                                          [1.5, -1.4, -1.0, 0.0]])
+      labels = constant_op.constant([[1.0, -1.0, 0.0, 0.5],
+                                     [0.0, 1.0, 0.0, 1.5]])
+      loss = losses.huber_loss(labels, predictions)
+      quadratic = 0.5 * (0.25 + 0.16 + 1.0 + 0.25) / 4.
+      linear = (1.5 + 2.4 + 1.0 + 1.5) / 4. - 0.5
+      expected_loss = (quadratic + linear) / 2.
+      self.assertAllClose(loss.eval(), expected_loss, atol=1e-5)
+
+
 class MeanSquaredErrorTest(test.TestCase):
 
   def setUp(self):
@@ -1015,6 +1054,41 @@ class MeanPairwiseSquaredErrorTest(test.TestCase):
         self._labels, self._predictions, expected_loss=0.0,
         weights=np.zeros((2, 1)))
 
+  def testLossIsAssociativeAcrossBatchElements(self):
+    with ops.Graph().as_default():
+      random_seed.set_random_seed(0)
+
+      height = 3
+      width = 4
+      shape = (1, height, width, 1)
+
+      labels0 = random_ops.random_uniform(
+          shape, minval=0, maxval=1, dtype=dtypes.float32)
+      predictions0 = random_ops.random_uniform(
+          shape, minval=0, maxval=1, dtype=dtypes.float32)
+
+      labels1 = random_ops.random_uniform(
+          shape, minval=0, maxval=1, dtype=dtypes.float32)
+      predictions1 = random_ops.random_uniform(
+          shape, minval=0, maxval=1, dtype=dtypes.float32)
+
+      loss0 = losses.mean_pairwise_squared_error(
+          labels=labels0,
+          predictions=predictions0)
+      loss1 = losses.mean_pairwise_squared_error(
+          labels=labels1,
+          predictions=predictions1)
+      loss0_1 = losses.mean_pairwise_squared_error(
+          labels=array_ops.concat([labels0, labels1], 0),
+          predictions=array_ops.concat([predictions0, predictions1], 0))
+
+      with self.test_session() as session:
+        loss0, loss1, loss0_1 = session.run([loss0, loss1, loss0_1])
+
+        self.assertTrue(loss0 > 0)
+        self.assertTrue(loss1 > 0)
+        self.assertAlmostEqual(loss0 + loss1, loss0_1, 5)
+
 
 class CosineDistanceLossTest(test.TestCase):
 
@@ -1152,27 +1226,40 @@ class ComputeWeightedLossTest(test.TestCase):
           next_loss += 1.0
     raw_losses.setflags(write=False)
     self._raw_losses = raw_losses
-    self._unweighted_loss = np.mean(self._raw_losses)
 
   def testUnweighted(self):
-    with ops.Graph().as_default():
-      self.assertEqual(0, len(util.get_losses()))
-      raw_losses = self._raw_losses
-      unweighted_losses = (
-          losses.compute_weighted_loss(raw_losses),
-          losses.compute_weighted_loss(raw_losses, weights=np.ones((1, 1, 1))),
-          losses.compute_weighted_loss(raw_losses, weights=np.ones((1, 1, 4))),
-          losses.compute_weighted_loss(raw_losses, weights=np.ones((1, 2, 1))),
-          losses.compute_weighted_loss(raw_losses, weights=np.ones((1, 2, 4))),
-          losses.compute_weighted_loss(raw_losses, weights=np.ones((3, 1, 1))),
-          losses.compute_weighted_loss(raw_losses, weights=np.ones((3, 1, 4))),
-          losses.compute_weighted_loss(raw_losses, weights=np.ones((3, 2, 1))),
-          losses.compute_weighted_loss(raw_losses, weights=np.ones(self._shape))
-      )
-      self.assertEqual(9, len(util.get_losses()))
-      with self.test_session():
-        for unweighted_loss in unweighted_losses:
-          self.assertAllClose(self._unweighted_loss, unweighted_loss.eval())
+    for reduction in losses.Reduction.all():
+      with ops.Graph().as_default() as g:
+        self.assertEqual(0, len(util.get_losses()))
+        raw_losses = self._raw_losses
+        unweighted_losses = (
+            losses.compute_weighted_loss(raw_losses, reduction=reduction),
+            losses.compute_weighted_loss(
+                raw_losses, weights=np.ones((1, 1, 1)), reduction=reduction),
+            losses.compute_weighted_loss(
+                raw_losses, weights=np.ones((1, 1, 4)), reduction=reduction),
+            losses.compute_weighted_loss(
+                raw_losses, weights=np.ones((1, 2, 1)), reduction=reduction),
+            losses.compute_weighted_loss(
+                raw_losses, weights=np.ones((1, 2, 4)), reduction=reduction),
+            losses.compute_weighted_loss(
+                raw_losses, weights=np.ones((3, 1, 1)), reduction=reduction),
+            losses.compute_weighted_loss(
+                raw_losses, weights=np.ones((3, 1, 4)), reduction=reduction),
+            losses.compute_weighted_loss(
+                raw_losses, weights=np.ones((3, 2, 1)), reduction=reduction),
+            losses.compute_weighted_loss(
+                raw_losses, weights=np.ones(self._shape), reduction=reduction)
+        )
+        self.assertEqual(9, len(util.get_losses()))
+        with self.test_session(g):
+          for unweighted_loss in unweighted_losses:
+            if reduction == losses.Reduction.WEIGHTED_SUM:
+              self.assertAllClose(
+                  np.sum(self._raw_losses), unweighted_loss.eval())
+            else:  # losses.Reduction.WEIGHTED_SUM_BY_NONZERO_WEIGHTS
+              self.assertAllClose(
+                  np.mean(self._raw_losses), unweighted_loss.eval())
 
   def testScalarWeight(self):
     with ops.Graph().as_default():
@@ -1245,15 +1332,22 @@ class ComputeWeightedLossTest(test.TestCase):
     self._test_invalid_weights((17.0,),)
 
   def _test_valid_weights(self, weights):
-    with ops.Graph().as_default():
-      self.assertEqual(0, len(util.get_losses()))
-      weighted_loss = losses.compute_weighted_loss(
-          self._raw_losses, weights=weights)
-      self.assertEqual(1, len(util.get_losses()))
-      with self.test_session():
-        self.assertAllClose(
-            np.mean(weights * self._raw_losses),
-            weighted_loss.eval())
+    for reduction in losses.Reduction.all():
+      with ops.Graph().as_default() as g:
+        self.assertEqual(0, len(util.get_losses()))
+        weighted_loss = losses.compute_weighted_loss(
+            self._raw_losses, weights=weights, reduction=reduction)
+        self.assertEqual(1, len(util.get_losses()))
+        with self.test_session(g):
+          weighted_losses = weights * self._raw_losses
+          weighted_sum = np.sum(weighted_losses)
+          if reduction == losses.Reduction.WEIGHTED_SUM:
+            self.assertAllClose(weighted_sum, weighted_loss.eval())
+          else:  # losses.Reduction.WEIGHTED_SUM_BY_NONZERO_WEIGHTS
+            broadcast_weights = weights * np.ones_like(self._raw_losses)
+            self.assertAllClose(
+                weighted_sum / np.count_nonzero(broadcast_weights),
+                weighted_loss.eval())
 
   def test1x1x1Weight(self):
     self._test_valid_weights((((17.0,),),))
@@ -1262,7 +1356,7 @@ class ComputeWeightedLossTest(test.TestCase):
     self._test_valid_weights((((17.0,), (3.0,),),))
 
   def test1x1x4Weight(self):
-    self._test_valid_weights((((17.0, 13.0, 2.0, 5.0),),))
+    self._test_valid_weights((((17.0, 0.0, 2.0, 5.0),),))
 
   def test3x1x1Weight(self):
     self._test_valid_weights((((17.0,),), ((5.0,),), ((2.0,),),))
@@ -1276,22 +1370,22 @@ class ComputeWeightedLossTest(test.TestCase):
 
   def test3x1x4Weight(self):
     self._test_valid_weights((
-        ((17.0, 13.0, 2.0, 5.0),),
+        ((17.0, 0.0, 2.0, 5.0),),
         ((5.0, 31.0, 17.0, 5.0),),
         ((7.0, 3.0, 11.0, 5.0),),
     ))
 
   def test1x2x4Weight(self):
     self._test_valid_weights(((
-        (17.0, 13.0, 2.0, 5.0),
+        (17.0, 0.0, 2.0, 5.0),
         (3.0, 13.0, 11.0, 2.0),
     ),))
 
   def test3x2x4Weight(self):
     self._test_valid_weights((
-        ((17.0, 13.0, 2.0, 5.0), (3.0, 13.0, 11.0, 2.0),),
-        ((5.0, 31.0, 17.0, 5.0), (13.0, 3.0, 1.0, 11.0),),
-        ((7.0, 3.0, 11.0, 5.0), (13.0, 11.0, 1.0, 7.0),),
+        ((17.0, 0.0, 2.0, 5.0), (3.0, 13.0, 11.0, 2.0),),
+        ((5.0, 31.0, 17.0, 5.0), (13.0, 3.0, 0.0, 11.0),),
+        ((0.0, 3.0, 11.0, 5.0), (13.0, 11.0, 1.0, 7.0),),
     ))
 
 

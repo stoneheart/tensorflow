@@ -120,6 +120,14 @@ bool ContainersEqual(const Container1T& c1, const Container2T& c2) {
           std::equal(std::begin(c1), std::end(c1), std::begin(c2)));
 }
 
+template <typename Container1T,
+          typename ElementType = typename Container1T::value_type>
+bool ContainersEqual(const Container1T& c1,
+                     std::initializer_list<ElementType> il) {
+  tensorflow::gtl::ArraySlice<ElementType> c2{il};
+  return ContainersEqual(c1, c2);
+}
+
 // Compares two containers for equality. Returns true iff the two containers
 // have the same size and all their elements compare equal using the predicate
 // p. Like std::equal, but forces size equality.
@@ -182,6 +190,9 @@ std::vector<int64> InversePermutation(
 // Composes two permutations: output[i] = p1[p2[i]].
 std::vector<int64> ComposePermutations(tensorflow::gtl::ArraySlice<int64> p1,
                                        tensorflow::gtl::ArraySlice<int64> p2);
+
+// Returns true iff permutation == {0, 1, 2, ...}.
+bool IsIdentityPermutation(tensorflow::gtl::ArraySlice<int64> permutation);
 
 template <typename Container>
 int64 PositionInContainer(const Container& container, int64 value) {

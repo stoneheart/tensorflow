@@ -159,7 +159,7 @@ class Multinomial(distribution.Distribution):
       name: Python `str` name prefixed to Ops created by this class.
     """
     parameters = locals()
-    with ops.name_scope(name, values=[total_count, logits, probs]) as ns:
+    with ops.name_scope(name, values=[total_count, logits, probs]):
       self._total_count = self._maybe_assert_valid_total_count(
           ops.convert_to_tensor(total_count, name="total_count"),
           validate_args)
@@ -172,7 +172,6 @@ class Multinomial(distribution.Distribution):
       self._mean_val = self._total_count[..., array_ops.newaxis] * self._probs
     super(Multinomial, self).__init__(
         dtype=self._probs.dtype,
-        is_continuous=False,
         reparameterization_type=distribution.NOT_REPARAMETERIZED,
         validate_args=validate_args,
         allow_nan_stats=allow_nan_stats,
@@ -180,7 +179,7 @@ class Multinomial(distribution.Distribution):
         graph_parents=[self._total_count,
                        self._logits,
                        self._probs],
-        name=ns)
+        name=name)
 
   @property
   def total_count(self):
@@ -282,14 +281,11 @@ class Multinomial(distribution.Distribution):
     """Check counts for proper shape, values, then return tensor version."""
     if not self.validate_args:
       return counts
+
+    counts = distribution_util.embed_check_nonnegative_discrete(
+        counts, check_integer=True)
     return control_flow_ops.with_dependencies([
-        check_ops.assert_non_negative(
-            counts,
-            message="counts must be non-negative."),
         check_ops.assert_equal(
             self.total_count, math_ops.reduce_sum(counts, -1),
             message="counts must sum to `self.total_count`"),
-        distribution_util.assert_integer_form(
-            counts,
-            message="counts cannot contain fractional components."),
     ], counts)

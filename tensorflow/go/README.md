@@ -15,18 +15,18 @@ Construct and execute TensorFlow graphs in Go.
     TensorFlow C library will have to be built from source (see below).
 
     -   Linux:
-        [CPU-only](https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-cpu-linux-x86_64-1.0.0rc2.tar.gz),
-        [GPU-enabled](https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-gpu-linux-x86_64-1.0.0rc2.tar.gz)
+        [CPU-only](https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-cpu-linux-x86_64-1.0.0.tar.gz),
+        [GPU-enabled](https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-gpu-linux-x86_64-1.0.0.tar.gz)
     -   OS X
-        [CPU-only](https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-cpu-darwin-x86_64-1.0.0rc2.tar.gz),
-        [GPU-enabled](https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-gpu-darwin-x86_64-1.0.0rc2.tar.gz)
+        [CPU-only](https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-cpu-darwin-x86_64-1.0.0.tar.gz),
+        [GPU-enabled](https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-gpu-darwin-x86_64-1.0.0.tar.gz)
 
     The following shell snippet downloads and extracts into `/usr/local`:
 
     ```sh
     TF_TYPE="cpu" # Set to "gpu" for GPU support
     curl -L \
-      "https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-${TF_TYPE}-$(go env GOOS)-x86_64-1.0.0rc2.tar.gz" |
+      "https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-${TF_TYPE}-$(go env GOOS)-x86_64-1.0.0.tar.gz" |
     sudo tar -C /usr/local -xz
     ```
 
@@ -117,6 +117,18 @@ from source.
     ```sh
     go test github.com/tensorflow/tensorflow/tensorflow/go
     ```
+
+### Generate wrapper functions for ops
+
+Go functions corresponding to TensorFlow operations are generated in `op/wrappers.go`. To regenerate them:
+
+Prerequisites:
+- [Protocol buffer compiler (protoc) 3.x](https://github.com/google/protobuf/releases/)
+- The TensorFlow repository under GOPATH
+
+```sh
+go generate github.com/tensorflow/tensorflow/tensorflow/go/op
+```
 
 ## Support
 

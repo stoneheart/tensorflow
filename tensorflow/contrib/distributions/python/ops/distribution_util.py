@@ -23,7 +23,6 @@ import hashlib
 import math
 import numpy as np
 
-from tensorflow.contrib import framework as contrib_framework
 from tensorflow.contrib import linalg
 from tensorflow.python.framework import constant_op
 from tensorflow.python.framework import dtypes
@@ -103,6 +102,16 @@ def assert_symmetric(matrix):
   matrix_t = array_ops.matrix_transpose(matrix)
   return control_flow_ops.with_dependencies(
       [check_ops.assert_equal(matrix, matrix_t)], matrix)
+
+
+def embed_check_nonnegative_discrete(x, check_integer=True):
+  """Assert x is a non-negative tensor, and optionally of integers."""
+  assertions = [check_ops.assert_non_negative(
+      x, message="x must be non-negative.")]
+  if check_integer:
+    assertions += [assert_integer_form(
+        x, message="x cannot contain fractional components.")]
+  return control_flow_ops.with_dependencies(assertions, x)
 
 
 def same_dynamic_shape(a, b):
@@ -504,7 +513,7 @@ def fill_lower_triangular(x, validate_args=False, name="fill_lower_triangular"):
     def tril_ids(n):
       """Internal helper to create vector of linear indices into y."""
       # Build the ids statically; chose 512 because it implies 1MiB.
-      if not contrib_framework.is_tensor(n) and n <= 512:
+      if not tensor_util.is_tensor(n) and n <= 512:
         ids = np.arange(n**2, dtype=np.int32)
         rows = (ids / n).astype(np.int32)  # Implicit floor.
         # We need to stop incrementing the index when we encounter

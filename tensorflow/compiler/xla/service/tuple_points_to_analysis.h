@@ -34,6 +34,7 @@ limitations under the License.
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/gtl/array_slice.h"
 #include "tensorflow/core/lib/gtl/flatmap.h"
+#include "tensorflow/core/lib/gtl/flatset.h"
 #include "tensorflow/core/platform/macros.h"
 #include "tensorflow/core/platform/types.h"
 
@@ -65,7 +66,7 @@ class PointsToSet : public ShapeTree<std::vector<const LogicalBuffer*>> {
 
   // Creates a set containing the union of all LogicalBuffers contained in the
   // PointsToSet.
-  std::set<const LogicalBuffer*> CreateFlattenedSet() const;
+  tensorflow::gtl::FlatSet<const LogicalBuffer*> CreateFlattenedSet() const;
 
   // Returns true if the given buffer is in the points-to set at the given
   // index.
@@ -189,7 +190,7 @@ class TuplePointsToAnalysis : public DfsHloVisitorWithDefault {
       const HloInstruction* instruction) const;
 
   // Returns true if the given instruction defines a buffer at the given index.
-  bool InstructionDefinesBufferAtIndex(HloInstruction* instruction,
+  bool InstructionDefinesBufferAtIndex(const HloInstruction* instruction,
                                        const ShapeIndex& index) const;
 
   // Returns an OK status if the given buffer is defined by instruction

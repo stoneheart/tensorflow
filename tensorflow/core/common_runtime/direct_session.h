@@ -192,6 +192,9 @@ class DirectSession : public Session {
   ::tensorflow::Status ExtendLocked(const GraphDef& graph)
       EXCLUSIVE_LOCKS_REQUIRED(graph_def_lock_);
 
+  ::tensorflow::Status ResourceHandleToInputTensor(
+      const Tensor& resource_tensor, Tensor* retrieved_tensor);
+
   // Feeds more inputs to the executors, triggering further execution.
   ::tensorflow::Status SendInputs(
       const std::vector<std::pair<string, Tensor>>& inputs,
@@ -244,6 +247,8 @@ class DirectSession : public Session {
   std::vector<thread::ThreadPool*> thread_pools_;
   bool owns_thread_pools_ = false;
 
+  // If true, blocks until device has finished all queued operations in a step.
+  bool sync_on_finish_ = true;
   // Schedules 'c' for execution on pool.
   void SchedClosure(thread::ThreadPool* pool, std::function<void()> c);
 

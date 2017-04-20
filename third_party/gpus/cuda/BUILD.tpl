@@ -33,10 +33,17 @@ config_setting(
     visibility = ["//visibility:public"],
 )
 
+config_setting(
+    name = "freebsd",
+    values = {"cpu": "freebsd"},
+    visibility = ["//visibility:public"],
+)
+
 cc_library(
     name = "cuda_headers",
     hdrs = glob([
         "**/*.h",
+        "**/*.hpp",
     ]),
     includes = [
         ".",
@@ -49,8 +56,10 @@ cc_library(
     name = "cudart_static",
     srcs = ["lib/%{cudart_static_lib}"],
     includes = ["include/"],
-    linkopts = [
-        "-ldl",
+    linkopts = select({
+        ":freebsd": [],
+        "//conditions:default": ["-ldl"],
+    }) + [
         "-lpthread",
         %{cudart_static_linkopt}
     ],
@@ -79,6 +88,16 @@ cc_library(
     data = ["lib/%{cublas_lib}"],
     includes = ["include/"],
     linkstatic = 1,
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "cusolver",
+    srcs = ["lib/%{cusolver_lib}"],
+    data = ["lib/%{cusolver_lib}"],
+    includes = ["include/"],
+    linkstatic = 1,
+    linkopts = ["-lgomp"],
     visibility = ["//visibility:public"],
 )
 
